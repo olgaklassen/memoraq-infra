@@ -1,0 +1,181 @@
+package com.bettermile.geo.infra
+
+import com.pulumi.aws.ec2.SecurityGroup
+import com.pulumi.aws.ec2.SecurityGroupArgs
+import com.pulumi.aws.ec2.inputs.SecurityGroupEgressArgs
+import com.pulumi.aws.ec2.inputs.SecurityGroupIngressArgs
+import com.pulumi.core.Output
+import com.pulumi.resources.ComponentResource
+import com.pulumi.resources.ComponentResourceOptions
+import com.pulumi.resources.CustomResourceOptions
+
+class KubTraining(
+    options: ComponentResourceOptions,
+) : ComponentResource("kub", "kub", options) {
+    init {
+
+        val vpcId = "vpc-0f8cd4503ff643b6f"
+
+        val haProxySg =
+            SecurityGroup(
+                "ha-proxy-sg",
+                SecurityGroupArgs.builder()
+                    .vpcId(vpcId)
+                    .namePrefix("ha-proxy-sg")
+                    .ingress(
+                        listOf(
+                            SecurityGroupIngressArgs.builder()
+                                .fromPort(22)
+                                .toPort(22)
+                                .protocol("tcp")
+                                .cidrBlocks("0.0.0.0/0")
+                                .description("Allow ssh")
+                                .build(),
+                            SecurityGroupIngressArgs.builder()
+                                .fromPort(0)
+                                .toPort(0)
+                                .protocol("-1")
+                                .self(true)
+                                .description("Internal communication")
+                                .build(),
+                            SecurityGroupIngressArgs.builder()
+                                .fromPort(80)
+                                .toPort(80)
+                                .protocol("tcp")
+                                .cidrBlocks(listOf("0.0.0.0/0"))
+                                .description("Add ingress to node port")
+                                .build()
+
+                        ),
+                    )
+                    .egress(
+                        SecurityGroupEgressArgs.builder()
+                            .fromPort(0)
+                            .toPort(0)
+                            .cidrBlocks("0.0.0.0/0")
+                            .ipv6CidrBlocks("::/0")
+                            .protocol("-1")
+                            .build(),
+                    )
+                    .tags(mapOf("Name" to "kub-sg"))
+                    .build(),
+                CustomResourceOptions.builder().parent(this).build(),
+            )
+
+        val securityGroup =
+            SecurityGroup(
+                "kub-sg",
+                SecurityGroupArgs.builder()
+                    .vpcId(vpcId)
+                    .namePrefix("kub-sg")
+                    .ingress(
+                        listOf(
+                            SecurityGroupIngressArgs.builder()
+                                .fromPort(22)
+                                .toPort(22)
+                                .protocol("tcp")
+                                .cidrBlocks("0.0.0.0/0")
+                                .description("Allow ssh")
+                                .build(),
+                            SecurityGroupIngressArgs.builder()
+                                .fromPort(0)
+                                .toPort(0)
+                                .protocol("-1")
+                                .self(true)
+                                .description("Internal communication")
+                                .build(),
+                            SecurityGroupIngressArgs.builder()
+                                .fromPort(0)
+                                .toPort(0)
+                                .protocol("-1")
+                                .securityGroups(Output.all(haProxySg.id()))
+                                .description("Add ingress to node port")
+                                .build()
+
+                        ),
+                    )
+                    .egress(
+                        SecurityGroupEgressArgs.builder()
+                            .fromPort(0)
+                            .toPort(0)
+                            .cidrBlocks("0.0.0.0/0")
+                            .ipv6CidrBlocks("::/0")
+                            .protocol("-1")
+                            .build(),
+                    )
+                    .tags(mapOf("Name" to "kub-sg"))
+                    .build(),
+                CustomResourceOptions.builder().parent(this).build(),
+            )
+
+
+        val controlPlane =
+            BmBastion(
+                "control-plane-host",
+                props =
+                    BmBastion.Props(
+                        vpcId = Output.of(vpcId),
+                        securityGroup = securityGroup,
+                        privateSubnetIds = Output.of(mutableListOf("subnet-0e56bb936883998ab")),
+                        static =
+                            BmBastion.Props.Static(
+                                sshKeys =
+                                    listOf(
+                                        BmBastion.Props.Static.BastionSshKey(
+                                            owner = "ok",
+                                            key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCq24qwAFj0pgGQbNt7pqB63cVWfxWRWzr7iYepOBjL127grUiGdCWR7FRffmp9hvqMfh2UNa0k+IT5LY5XFZByTWx6hL0qbyC8tkEZhfyna9fNK0b/jaEPlU1MyzToSGVWSE4LZrIlj+oxJ7mn2KMmb640qi4JO1gNQIZKtRFan7+evaDK04WdBtpMAaB6JxJwwKAMCuVvKMMQiK9z3BGrCYpulj7Syq8MN10hF826Yeitexspvwx5B/qtXOt6E0NAx8gorWXw7x4RV1xGOn4G2fS2U+i+VKJCbGyhoLlofxMwvjfXQ5pxMQLKdiWDsq6aQTWJ5LzvRqdCJr1xjjA/6g/lVw+rWLEXqbeK3s1lV9HLJmfWFPSdYE1+Ev4buYHpkNV6kJ8qs9Yn14wg7j5aUFFU1/Oaa/corLipBmOacEZ/jCyKyX1HgfRVhsWbwj3d5onfZwjhgCsC1GGWp3gKr4ULglsqgm61T5ewF14hFzODJQ1+YO6Sf3muznh2QuM= olgaklassen@Olgas-MBP.localdomain",
+                                        ),
+                                    ),
+                                instanceName = "ControlPlane",
+                            ),
+                    ),
+                ComponentResourceOptions.builder().parent(this).build(),
+            )
+
+//        val worker =
+//            BmBastion(
+//                "worker-host",
+//                props =
+//                    BmBastion.Props(
+//                        vpcId = Output.of(vpcId),
+//                        securityGroup = securityGroup,
+//                        privateSubnetIds = Output.of(mutableListOf("subnet-0e56bb936883998ab")),
+//                        static =
+//                            BmBastion.Props.Static(
+//                                sshKeys =
+//                                    listOf(
+//                                        BmBastion.Props.Static.BastionSshKey(
+//                                            owner = "ok",
+//                                            key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCq24qwAFj0pgGQbNt7pqB63cVWfxWRWzr7iYepOBjL127grUiGdCWR7FRffmp9hvqMfh2UNa0k+IT5LY5XFZByTWx6hL0qbyC8tkEZhfyna9fNK0b/jaEPlU1MyzToSGVWSE4LZrIlj+oxJ7mn2KMmb640qi4JO1gNQIZKtRFan7+evaDK04WdBtpMAaB6JxJwwKAMCuVvKMMQiK9z3BGrCYpulj7Syq8MN10hF826Yeitexspvwx5B/qtXOt6E0NAx8gorWXw7x4RV1xGOn4G2fS2U+i+VKJCbGyhoLlofxMwvjfXQ5pxMQLKdiWDsq6aQTWJ5LzvRqdCJr1xjjA/6g/lVw+rWLEXqbeK3s1lV9HLJmfWFPSdYE1+Ev4buYHpkNV6kJ8qs9Yn14wg7j5aUFFU1/Oaa/corLipBmOacEZ/jCyKyX1HgfRVhsWbwj3d5onfZwjhgCsC1GGWp3gKr4ULglsqgm61T5ewF14hFzODJQ1+YO6Sf3muznh2QuM= olgaklassen@Olgas-MBP.localdomain",
+//                                        ),
+//                                    ),
+//                                instanceName = "Worker1",
+//                            ),
+//                    ),
+//                options = options,
+//            )
+
+        val lb =
+            BmBastion(
+                "ha-proxy",
+                props =
+                    BmBastion.Props(
+                        vpcId = Output.of(vpcId),
+                        securityGroup = haProxySg,
+                        privateSubnetIds = Output.of(mutableListOf("subnet-0e56bb936883998ab")),
+                        static =
+                            BmBastion.Props.Static(
+                                sshKeys =
+                                    listOf(
+                                        BmBastion.Props.Static.BastionSshKey(
+                                            owner = "ok",
+                                            key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCq24qwAFj0pgGQbNt7pqB63cVWfxWRWzr7iYepOBjL127grUiGdCWR7FRffmp9hvqMfh2UNa0k+IT5LY5XFZByTWx6hL0qbyC8tkEZhfyna9fNK0b/jaEPlU1MyzToSGVWSE4LZrIlj+oxJ7mn2KMmb640qi4JO1gNQIZKtRFan7+evaDK04WdBtpMAaB6JxJwwKAMCuVvKMMQiK9z3BGrCYpulj7Syq8MN10hF826Yeitexspvwx5B/qtXOt6E0NAx8gorWXw7x4RV1xGOn4G2fS2U+i+VKJCbGyhoLlofxMwvjfXQ5pxMQLKdiWDsq6aQTWJ5LzvRqdCJr1xjjA/6g/lVw+rWLEXqbeK3s1lV9HLJmfWFPSdYE1+Ev4buYHpkNV6kJ8qs9Yn14wg7j5aUFFU1/Oaa/corLipBmOacEZ/jCyKyX1HgfRVhsWbwj3d5onfZwjhgCsC1GGWp3gKr4ULglsqgm61T5ewF14hFzODJQ1+YO6Sf3muznh2QuM= olgaklassen@Olgas-MBP.localdomain",
+                                        ),
+                                    ),
+                                instanceName = "HA-Proxy",
+                            ),
+                    ),
+                options = options,
+            )
+    }
+}

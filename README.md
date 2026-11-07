@@ -4,5 +4,5 @@ The provisioning is implemented using Ansible for both provisioning the nodes on
 
 # Architecture
 The cluster consists of:
-- 1 control pane
+- 1 control plane
 - 1 worker node
